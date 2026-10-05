@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "slash-beat",
+  "name": "極意一閃：節奏打鐵",
+  "version": "1.0.0",
+  "description": "極限格擋 × 隻狼式打鐵音律！踏準音樂節拍按下招架爆出火花巨響，看破血紅危字攻擊，積滿架勢觸發黑白水墨居合一閃清屏！",
+  "author": "TommyLam",
+  "entry": "index.html",
+  "cover": "cover.png",
+  "tags": ["動作", "節奏", "打鐵", "反應", "武士"],
+  "instructions": "桌機：[J] 鍵格擋普通攻擊，[K] 鍵在敵人發動「危」字攻擊時突刺看破。\n手機：點擊螢幕左半邊格擋，點擊螢幕右半邊突刺看破。積滿對手架勢值可發動居合一閃！",
+  "devices": ["desktop", "mobile"],
+  "leaderboard": {
+    "id": "high-score",
+    "order": "desc",
+    "unit": "分",
+    "minScore": 0,
+    "maxScore": 9007199254740991
+  }
+}

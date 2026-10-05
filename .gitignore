@@ -1,0 +1,6 @@
+node_modules/
+dist/
+artifacts/
+game.zip
+*.log
+.DS_Store
