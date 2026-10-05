@@ -7,8 +7,9 @@ export class JapaneseSequencer {
   private scheduleAheadTime: number = 0.12; // 預先排程窗口 (s)
   private timerId: number | null = null;
   public isBossMode: boolean = false;
+  public isFeverMode: boolean = false;
 
-  // 擴充日本陰旋法與都節音階 (Insen & Miyako-bushi Scales) 雙八度音階表
+  // 日本陰旋法與都節音階 (Insen & Miyako-bushi Scales)
   private insenFreqs = [
     146.83, // D3 (低音大古箏)
     155.56, // Eb3
@@ -24,6 +25,8 @@ export class JapaneseSequencer {
     622.25, // Eb5
     783.99, // G5
     880.00, // A5
+    1046.50, // C6
+    1174.66, // D6
   ];
 
   // 16 步太鼓律動 (Nagado 大太鼓 / Shime-daiko 締太鼓)
@@ -35,6 +38,11 @@ export class JapaneseSequencer {
   private kotoPatternBoss    = [5, 9, 12, 9, 10, 12, 13, 12, 9, 12, 10, 8, 7, 9, 10, 12];
   private kotoActiveNormal   = [1, 0, 1, 1,  0, 1, 1, 0,   1, 1, 0, 1,   1, 0, 1, 1];
   private kotoActiveBoss     = [1, 1, 1, 1,  0, 1, 1, 1,   1, 1, 1, 1,   1, 1, 1, 1];
+
+  // 狂暴津輕三味線 (Tsugaru-Shamisen) 激情獨奏旋律譜 (激昂 16 步變奏)
+  private shamisenSoloPattern = [5, 8, 10, 12,  13, 12, 10, 8,  10, 12, 13, 15,  13, 12, 10, 8];
+  private shamisenActiveBoss  = [1, 1, 1, 1,   1, 1, 1, 1,   1, 1, 1, 1,   1, 1, 1, 1];
+  private shamisenActiveFever = [1, 0, 1, 1,   1, 1, 0, 1,   1, 1, 1, 0,   1, 1, 1, 1];
 
   constructor(private ctx: AudioContext, private out: GainNode) {}
 
@@ -61,6 +69,10 @@ export class JapaneseSequencer {
 
   public setBossMode(boss: boolean): void {
     this.isBossMode = boss;
+  }
+
+  public setFeverMode(fever: boolean): void {
+    this.isFeverMode = fever;
   }
 
   private runScheduler = (): void => {
@@ -103,14 +115,27 @@ export class JapaneseSequencer {
       const isAccent = step % 4 === 0;
       this.playScheduledKoto(time, freq, isAccent);
 
-      // Boss 戰或第 0 步演奏雙音和弦 (Chord Harmony)
+      // Boss 戰或第 0 步演奏雙音和弦
       if (this.isBossMode && (step === 0 || step === 8)) {
         const bassFreq = this.insenFreqs[Math.max(0, noteIdx - 5)];
         this.playScheduledKoto(time + 0.015, bassFreq, true, 0.4);
       }
     }
 
-    // 3. 拍子木 (Hyoshigi)
+    // 3. 狂暴三味線 (Tsugaru-Shamisen Solo) 激情獨奏段落！
+    // 條件：Boss 戰模式、或者 Fever 極意境界、或者高 BPM (>= 135)
+    const shouldPlayShamisen = this.isBossMode || this.isFeverMode || this.bpm >= 135;
+    if (shouldPlayShamisen) {
+      const shamisenActive = this.isBossMode ? this.shamisenActiveBoss : this.shamisenActiveFever;
+      if (shamisenActive[step] === 1) {
+        const noteIdx = this.shamisenSoloPattern[step] % this.insenFreqs.length;
+        const freq = this.insenFreqs[noteIdx];
+        const isAccent = step % 4 === 0;
+        this.playScheduledShamisen(time, freq, isAccent);
+      }
+    }
+
+    // 4. 拍子木 (Hyoshigi)
     if (step === 4 || step === 12 || (this.isBossMode && (step === 2 || step === 10))) {
       this.playScheduledHyoshigi(time);
     }
@@ -163,7 +188,7 @@ export class JapaneseSequencer {
     osc.stop(time + 0.09);
   }
 
-  // 古箏撥弦 (Koto) 帶金石韻味三角波 + 顫音
+  // 古箏撥弦 (Koto)
   private playScheduledKoto(time: number, freq: number, isAccent: boolean, volScale: number = 1.0): void {
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
@@ -175,13 +200,58 @@ export class JapaneseSequencer {
     const vol = (isAccent ? 0.34 : 0.22) * volScale;
 
     gain.gain.setValueAtTime(0.001, time);
-    gain.gain.linearRampToValueAtTime(vol, time + 0.003); // 極快撥弦
+    gain.gain.linearRampToValueAtTime(vol, time + 0.003);
     gain.gain.exponentialRampToValueAtTime(0.0001, time + dur);
 
     osc.connect(gain);
     gain.connect(this.out);
     osc.start(time);
     osc.stop(time + dur);
+  }
+
+  // 津輕三味線 (Tsugaru Shamisen Solo)
+  private playScheduledShamisen(time: number, freq: number, isAccent: boolean): void {
+    const osc = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sawtooth';
+    // 三味線特有微幅向上快速滑音
+    osc.frequency.setValueAtTime(freq * 0.98, time);
+    osc.frequency.exponentialRampToValueAtTime(freq, time + 0.02);
+
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(freq * 1.8, time);
+    filter.Q.value = 5.0; // 犀利金屬共鳴
+
+    const dur = isAccent ? 0.28 : 0.18;
+    const vol = isAccent ? 0.36 : 0.24;
+
+    gain.gain.setValueAtTime(0.001, time);
+    gain.gain.linearRampToValueAtTime(vol, time + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.out);
+
+    osc.start(time);
+    osc.stop(time + dur);
+
+    // 敲擊琴皮打板聲
+    if (isAccent) {
+      const slap = this.ctx.createOscillator();
+      const slapGain = this.ctx.createGain();
+      slap.type = 'sine';
+      slap.frequency.setValueAtTime(320, time);
+      slap.frequency.exponentialRampToValueAtTime(80, time + 0.02);
+      slapGain.gain.setValueAtTime(0.2, time);
+      slapGain.gain.exponentialRampToValueAtTime(0.001, time + 0.02);
+      slap.connect(slapGain);
+      slapGain.connect(this.out);
+      slap.start(time);
+      slap.stop(time + 0.02);
+    }
   }
 
   // 拍子木 (Hyoshigi)

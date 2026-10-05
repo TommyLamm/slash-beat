@@ -2,6 +2,7 @@ export type GameState =
   | 'BOOT'
   | 'TITLE'
   | 'CALIBRATION'
+  | 'SETTINGS'
   | 'READY'
   | 'COMBAT'
   | 'DEATHBLOW_WINDOW'
@@ -9,19 +10,30 @@ export type GameState =
   | 'WAVE_CLEAR'
   | 'GAME_OVER';
 
-export type ActionType = 'PARRY' | 'SLASH';
+export type GameMode = 'WAVES' | 'ENDLESS';
+
+export type ActionType = 'PARRY' | 'SLASH' | 'JUMP';
+
 export type AttackType =
   | 'NORMAL'
   | 'PERILOUS_THRUST'
   | 'FLURRY_TRIPLE'
   | 'BOSS_QUINTUPLE'
   | 'BOSS_DELAYED'
-  | 'BOSS_JUMP';
+  | 'BOSS_JUMP'
+  | 'SHURIKEN'
+  | 'SPEAR_THRUST'
+  | 'SPEAR_SWEEP';
+
 export type AttackSide = 'LEFT' | 'RIGHT';
 
-export type ParryRating = 'PERFECT' | 'GOOD' | 'MIKIRI' | 'MISS' | 'WRONG_ACTION';
+export type ParryRating = 'PERFECT' | 'GOOD' | 'MIKIRI' | 'JUMP_COUNTER' | 'MISS' | 'WRONG_ACTION';
 
 export type GradeRank = 'SSS' | 'SS' | 'S' | 'A' | 'B' | 'C';
+
+export type BladeTrailStyle = 'AZURE' | 'CRIMSON' | 'SOLAR';
+
+export type EnemyKind = 'NORMAL' | 'SHURIKEN_SHINOBI' | 'SPEAR_MONK' | 'BOSS';
 
 export interface CombatStats {
   score: number;
@@ -30,10 +42,12 @@ export interface CombatStats {
   perfectCount: number;
   goodCount: number;
   mikiriCount: number;
+  jumpCounterCount: number;
   missCount: number;
   totalNotes: number;
   grade: GradeRank;
   wavesCleared: number;
+  endlessKills: number;
 }
 
 export interface EnemyNote {
@@ -47,8 +61,11 @@ export interface EnemyNote {
   handled: boolean;
   slashHit?: boolean;
   isBoss?: boolean;
+  enemyKind?: EnemyKind;
   flurryIndex?: number;
   flurryTotal?: number;
+  shurikenIndex?: number;   // 1 或 2
+  chargeDuration?: number;  // 僧兵二段蓄力時長
 }
 
 export interface SparkParticle {
@@ -118,6 +135,39 @@ export interface PerilousStamp {
   maxLife: number;
 }
 
+export interface RainParticle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  length: number;
+  alpha: number;
+}
+
+export interface LightningBolt {
+  segments: Array<{ x1: number; y1: number; x2: number; y2: number }>;
+  alpha: number;
+  maxAlpha: number;
+  timer: number;
+}
+
+export interface BladeTrailPoint {
+  x: number;
+  y: number;
+  alpha: number;
+  width: number;
+  style: BladeTrailStyle;
+}
+
+export interface TouchRipple {
+  x: number;
+  y: number;
+  radius: number;
+  maxRadius: number;
+  alpha: number;
+  color: string;
+}
+
 export interface SlashBeatSaveSchema {
   version: 1;
   highScore: number;
@@ -126,6 +176,12 @@ export interface SlashBeatSaveSchema {
   totalRuns: number;
   calibrationOffsetMs: number;
   isMuted: boolean;
+  selectedBladeTrail: BladeTrailStyle;
+  endlessHighScore: number;
+  endlessMaxCombo: number;
+  endlessHighestKills: number;
+  touchSplitRatio: number; // 0.3 ~ 0.7 螢幕劃分比例
+  touchInvert: boolean;    // 是否左右對調
 }
 
 export interface PlayroomFinishPayload {
@@ -136,5 +192,6 @@ export interface PlayroomFinishPayload {
     mikiriCount: number;
     grade: string;
     wavesCleared: number;
+    mode?: string;
   };
 }

@@ -4,12 +4,14 @@ import {
   MAX_HP,
   MAX_POSTURE,
 } from '../core/Constants';
+import { BladeTrailStyle } from '../types';
 
 export type SamuraiPose =
   | 'IDLE'
   | 'PARRY_LEFT'
   | 'PARRY_RIGHT'
   | 'MIKIRI'
+  | 'JUMP_COUNTER'
   | 'IAI_CHARGE'
   | 'IAI_SLASH'
   | 'HURT';
@@ -22,10 +24,14 @@ export class Samurai {
   public isPostureBroken: boolean = false;
   public postureBrokenTimer: number = 0;
   public isFever: boolean = false;
+  public bladeTrailStyle: BladeTrailStyle = 'AZURE';
 
   public pose: SamuraiPose = 'IDLE';
   private poseTimer: number = 0;
   private animTime: number = 0;
+
+  // 刀尖世界座標拖尾軌跡隊列 (Blade Trail)
+  public bladeTrails: Array<{ x: number; y: number; alpha: number }> = [];
 
   public reset(): void {
     this.x = CENTER_X;
@@ -38,6 +44,7 @@ export class Samurai {
     this.pose = 'IDLE';
     this.poseTimer = 0;
     this.animTime = 0;
+    this.bladeTrails = [];
   }
 
   public setPose(newPose: SamuraiPose, duration: number = 0.18): void {
@@ -73,14 +80,13 @@ export class Samurai {
 
   private triggerPostureBreak(): void {
     this.isPostureBroken = true;
-    this.postureBrokenTimer = 1.0; // 凍結失衡 1 秒
+    this.postureBrokenTimer = 1.0;
     this.setPose('HURT', 1.0);
   }
 
   public update(dt: number): void {
     this.animTime += dt;
 
-    // 姿勢計時
     if (this.poseTimer > 0) {
       this.poseTimer -= dt;
       if (this.poseTimer <= 0 && this.pose !== 'IDLE') {
@@ -88,7 +94,6 @@ export class Samurai {
       }
     }
 
-    // 崩防計時
     if (this.isPostureBroken) {
       this.postureBrokenTimer -= dt;
       if (this.postureBrokenTimer <= 0) {
@@ -96,13 +101,58 @@ export class Samurai {
         this.posture = 0;
       }
     } else {
-      // 自然衰減恢復架勢條：RecoveryRate = 24 * (hp / maxHp)
       const recoveryRate = 24 * (this.hp / MAX_HP);
       this.posture = Math.max(0, this.posture - recoveryRate * dt);
+    }
+
+    // 計算刀尖實時座標並寫入拖尾隊列
+    this.updateBladeTrails(dt);
+  }
+
+  private updateBladeTrails(dt: number): void {
+    // 根據當前姿勢獲取刀尖大略位置
+    const tip = this.getBladeTipOffset();
+    const worldTipX = this.x + tip.x;
+    const worldTipY = this.y + tip.y;
+
+    if (this.pose !== 'IDLE' && this.pose !== 'HURT') {
+      this.bladeTrails.push({ x: worldTipX, y: worldTipY, alpha: 1.0 });
+      if (this.bladeTrails.length > 12) {
+        this.bladeTrails.shift();
+      }
+    }
+
+    for (let i = this.bladeTrails.length - 1; i >= 0; i--) {
+      this.bladeTrails[i].alpha -= dt * 4.5;
+      if (this.bladeTrails[i].alpha <= 0) {
+        this.bladeTrails.splice(i, 1);
+      }
+    }
+  }
+
+  private getBladeTipOffset(): { x: number; y: number } {
+    switch (this.pose) {
+      case 'PARRY_LEFT':
+        return { x: -44, y: -76 };
+      case 'PARRY_RIGHT':
+        return { x: 44, y: -76 };
+      case 'MIKIRI':
+        return { x: 38, y: -16 };
+      case 'JUMP_COUNTER':
+        return { x: 0, y: -95 };
+      case 'IAI_CHARGE':
+        return { x: 20, y: -24 };
+      case 'IAI_SLASH':
+        return { x: 55, y: -38 };
+      default:
+        return { x: -28, y: -12 };
     }
   }
 
   public render(ctx: CanvasRenderingContext2D): void {
+    // 1. 繪製劍氣刀光拖尾 (Blade Trail)
+    this.renderBladeTrail(ctx);
+
     ctx.save();
     ctx.translate(this.x, this.y);
 
@@ -112,16 +162,20 @@ export class Samurai {
     // 陰影
     ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
     ctx.beginPath();
-    ctx.ellipse(0, 0, 32, 8, 0, 0, Math.PI * 2);
+    const shadowScale = this.pose === 'JUMP_COUNTER' ? 0.6 : 1.0;
+    ctx.ellipse(0, 0, 32 * shadowScale, 8 * shadowScale, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // 依姿態進行繪製
+    // 姿態位移
     if (this.pose === 'HURT') {
       ctx.translate(0, 4);
       ctx.rotate(-0.1);
+    } else if (this.pose === 'JUMP_COUNTER') {
+      // 凌空躍起 45px
+      ctx.translate(0, -45);
     }
 
-    // 1. 飄揚的深紅長圍巾 (向左後方飄逸)
+    // 飄揚深紅長圍巾
     ctx.fillStyle = '#e61e38';
     ctx.beginPath();
     ctx.moveTo(-5, -60 + breathe);
@@ -130,7 +184,7 @@ export class Samurai {
     ctx.closePath();
     ctx.fill();
 
-    // 2. 武士黑袍水墨軀幹
+    // 武士黑袍水墨軀幹
     ctx.fillStyle = this.isPostureBroken ? '#442222' : '#0e0e14';
     ctx.beginPath();
     ctx.moveTo(-16, -58 + breathe);
@@ -140,11 +194,11 @@ export class Samurai {
     ctx.closePath();
     ctx.fill();
 
-    // 腰帶 (深金/朱紅腰封)
+    // 腰帶
     ctx.fillStyle = '#b8860b';
     ctx.fillRect(-18, -32 + breathe, 36, 6);
 
-    // 3. 斗笠 (笠帽)
+    // 斗笠
     ctx.fillStyle = '#181822';
     ctx.beginPath();
     ctx.moveTo(-38, -70 + breathe);
@@ -153,38 +207,39 @@ export class Samurai {
     ctx.closePath();
     ctx.fill();
 
-    // 斗笠邊緣亮邊 (極意境界下燃燒蒼藍流光)
-    ctx.strokeStyle = this.isFever ? '#00f0ff' : '#8a8a9a';
+    // 斗笠邊緣亮邊 (隨劍氣光刃配色)
+    let trailColor = '#00f0ff';
+    if (this.bladeTrailStyle === 'CRIMSON') trailColor = '#ff003c';
+    else if (this.bladeTrailStyle === 'SOLAR') trailColor = '#ffd700';
+
+    ctx.strokeStyle = this.isFever ? trailColor : '#8a8a9a';
     ctx.lineWidth = this.isFever ? 2.5 : 1.5;
     ctx.beginPath();
     ctx.moveTo(-38, -70 + breathe);
     ctx.lineTo(38, -70 + breathe);
     ctx.stroke();
 
-    // 4. 太刀與手臂 (隨姿態動態變化)
-    ctx.lineWidth = 3;
+    // 武器渲染
+    ctx.lineWidth = 3.2;
     ctx.lineCap = 'round';
 
     if (this.pose === 'PARRY_LEFT') {
-      // 左側格擋：太刀橫架於左胸前，刃口向左偏
-      ctx.strokeStyle = this.isFever ? '#00f0ff' : '#ffffff';
+      ctx.strokeStyle = this.isFever ? trailColor : '#ffffff';
       ctx.beginPath();
       ctx.moveTo(-10, -45 + breathe);
-      ctx.lineTo(-42, -75);
+      ctx.lineTo(-44, -76);
       ctx.stroke();
 
-      // 刀柄與金屬刀鍔
       ctx.strokeStyle = '#ffd700';
       ctx.beginPath();
       ctx.moveTo(-12, -42 + breathe);
       ctx.lineTo(-8, -48 + breathe);
       ctx.stroke();
     } else if (this.pose === 'PARRY_RIGHT') {
-      // 右側格擋：太刀橫架於右側，刃口向右上方招架
-      ctx.strokeStyle = this.isFever ? '#00f0ff' : '#ffffff';
+      ctx.strokeStyle = this.isFever ? trailColor : '#ffffff';
       ctx.beginPath();
       ctx.moveTo(10, -45 + breathe);
-      ctx.lineTo(42, -75);
+      ctx.lineTo(44, -76);
       ctx.stroke();
 
       ctx.strokeStyle = '#ffd700';
@@ -193,35 +248,84 @@ export class Samurai {
       ctx.lineTo(12, -42 + breathe);
       ctx.stroke();
     } else if (this.pose === 'MIKIRI') {
-      // 凌空踩刀看破：特工躍空下踏，單足踩住刀尖，雙手按刀怒斬
-      ctx.translate(0, -18); // 凌空懸躍 18px
-
-      ctx.strokeStyle = '#00f0ff';
+      ctx.translate(0, -18);
+      ctx.strokeStyle = trailColor;
       ctx.lineWidth = 4;
       ctx.beginPath();
       ctx.moveTo(-5, -45 + breathe);
       ctx.lineTo(35, 2);
       ctx.stroke();
 
-      // 踏刀白光震波
-      ctx.strokeStyle = 'rgba(0, 240, 255, 0.9)';
+      ctx.strokeStyle = trailColor;
       ctx.lineWidth = 2.5;
       ctx.beginPath();
       ctx.arc(35, 12, 22, 0, Math.PI * 2);
       ctx.stroke();
+    } else if (this.pose === 'JUMP_COUNTER') {
+      // 向上看破跳躍：雙手反握太刀由上至下凌空雷霆重劈！
+      ctx.strokeStyle = trailColor;
+      ctx.lineWidth = 4.2;
+      ctx.beginPath();
+      ctx.moveTo(0, -50 + breathe);
+      ctx.lineTo(0, 18);
+      ctx.stroke();
+
+      // 踩踏長槍的金色破空踏浪
+      ctx.strokeStyle = '#ffd700';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.ellipse(0, 22, 28, 8, 0, 0, Math.PI * 2);
+      ctx.stroke();
     } else if (this.pose === 'IAI_CHARGE') {
-      // 居合拔刀術蓄力姿態：伏低身軀，左手按鞘，右手扣刀柄
       ctx.strokeStyle = '#ff003c';
       ctx.beginPath();
       ctx.moveTo(-15, -30 + breathe);
       ctx.lineTo(15, -25 + breathe);
       ctx.stroke();
     } else {
-      // IDLE 待機：右手握刀鞘懸於腰際
       ctx.strokeStyle = '#c0c0d0';
       ctx.beginPath();
       ctx.moveTo(-12, -35 + breathe);
       ctx.lineTo(-28, -12);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  // 繪製光刃劍氣拖尾
+  private renderBladeTrail(ctx: CanvasRenderingContext2D): void {
+    if (this.bladeTrails.length < 2) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    let primaryColor = '#00f0ff';
+    let glowColor = 'rgba(0, 240, 255, 0.4)';
+    if (this.bladeTrailStyle === 'CRIMSON') {
+      primaryColor = '#ff1744';
+      glowColor = 'rgba(255, 23, 68, 0.4)';
+    } else if (this.bladeTrailStyle === 'SOLAR') {
+      primaryColor = '#ffd700';
+      glowColor = 'rgba(255, 215, 0, 0.4)';
+    }
+
+    for (let i = 0; i < this.bladeTrails.length - 1; i++) {
+      const p1 = this.bladeTrails[i];
+      const p2 = this.bladeTrails[i + 1];
+
+      ctx.strokeStyle = glowColor;
+      ctx.lineWidth = 8 * p1.alpha;
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.stroke();
+
+      ctx.strokeStyle = primaryColor;
+      ctx.lineWidth = 3.5 * p1.alpha;
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
       ctx.stroke();
     }
 

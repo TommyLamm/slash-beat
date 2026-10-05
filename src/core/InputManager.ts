@@ -13,8 +13,14 @@ export class InputManager {
   private onActionCallback: ((action: ActionType) => void) | null = null;
   private onConfirmCallback: (() => void) | null = null;
   private onCancelCallback: (() => void) | null = null;
+  private onTouchRippleCallback: ((x: number, y: number, color: string) => void) | null = null;
   private clickRegions: ClickRegion[] = [];
   private canvas: HTMLCanvasElement;
+
+  // 自定義觸控配置
+  public splitRatio: number = 0.5; // 0.3 ~ 0.7
+  public isInverted: boolean = false;
+  public jumpZoneRatio: number = 0.35; // 上方 35% 區域為向上跳躍看破
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -33,6 +39,15 @@ export class InputManager {
     this.onCancelCallback = cb;
   }
 
+  public setOnTouchRipple(cb: (x: number, y: number, color: string) => void): void {
+    this.onTouchRippleCallback = cb;
+  }
+
+  public setTouchConfig(splitRatio: number, isInverted: boolean): void {
+    this.splitRatio = Math.max(0.2, Math.min(0.8, splitRatio));
+    this.isInverted = isInverted;
+  }
+
   public registerClickRegion(region: ClickRegion): void {
     this.clickRegions.push(region);
   }
@@ -46,13 +61,26 @@ export class InputManager {
       if (e.repeat) return;
 
       const code = e.code;
-      if (code === 'KeyJ' || code === 'KeyZ' || code === 'ArrowLeft') {
+      // 1. 格擋鍵 (PARRY)：支援 [J] / [A] / [Z] / [←]
+      if (code === 'KeyJ' || code === 'KeyA' || code === 'KeyZ' || code === 'ArrowLeft') {
         e.preventDefault();
         this.onActionCallback?.('PARRY');
-      } else if (code === 'KeyK' || code === 'KeyX' || code === 'ArrowRight') {
+      }
+      // 2. 突刺看破 / 斬擊鍵 (SLASH)：支援 [K] / [D] / [X] / [→]
+      else if (code === 'KeyK' || code === 'KeyD' || code === 'KeyX' || code === 'ArrowRight') {
         e.preventDefault();
         this.onActionCallback?.('SLASH');
-      } else if (code === 'Space' || code === 'Enter') {
+      }
+      // 3. 向上看破跳躍鍵 (JUMP)：支援 [W] / [I] / [ArrowUp] / [Space]
+      else if (code === 'KeyW' || code === 'KeyI' || code === 'ArrowUp') {
+        e.preventDefault();
+        this.onActionCallback?.('JUMP');
+      } else if (code === 'Space') {
+        e.preventDefault();
+        this.onConfirmCallback?.();
+        // 戰鬥中 Space 亦可作為跳躍看破
+        this.onActionCallback?.('JUMP');
+      } else if (code === 'Enter') {
         e.preventDefault();
         this.onConfirmCallback?.();
       } else if (code === 'Escape') {
@@ -77,13 +105,26 @@ export class InputManager {
         }
       }
 
-      // 未命中按鈕時，進行螢幕左右雙分區觸控判定：
-      // 左半邊 = PARRY, 右半邊 = SLASH
-      if (x < this.canvas.width / 2) {
-        this.onActionCallback?.('PARRY');
+      // 未命中按鈕時，進行螢幕手勢與分區觸控判定：
+      // 1. 螢幕上方 35% 區域為 JUMP（向上看破跳躍）
+      let action: ActionType;
+      let color: string;
+
+      if (y < this.canvas.height * this.jumpZoneRatio) {
+        action = 'JUMP';
+        color = '#00f0ff';
       } else {
-        this.onActionCallback?.('SLASH');
+        const splitX = this.canvas.width * this.splitRatio;
+        const isLeft = x < splitX;
+        const triggerLeft = this.isInverted ? 'SLASH' : 'PARRY';
+        const triggerRight = this.isInverted ? 'PARRY' : 'SLASH';
+
+        action = isLeft ? triggerLeft : triggerRight;
+        color = action === 'PARRY' ? '#ffd700' : '#ff0055';
       }
+
+      this.onTouchRippleCallback?.(x, y, color);
+      this.onActionCallback?.(action);
       this.onConfirmCallback?.();
     };
 
@@ -99,7 +140,6 @@ export class InputManager {
       handlePointerDown(e.clientX, e.clientY);
     });
 
-    // 防止右鍵選單
     this.canvas.addEventListener('contextmenu', (e: MouseEvent) => {
       e.preventDefault();
     });

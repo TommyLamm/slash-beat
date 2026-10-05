@@ -3,6 +3,7 @@ import {
   WINDOW_PERFECT,
   WINDOW_GOOD,
   WINDOW_MIKIRI,
+  WINDOW_JUMP,
   EMPTY_ACTION_COOLDOWN,
   SPAM_COOLDOWN,
   PENALTY_DURATION,
@@ -19,7 +20,7 @@ export class ParryJudge {
     inputSongTime: number,
     activeEnemies: EnemyNote[]
   ): { rating: ParryRating; targetEnemy: EnemyNote | null; timeDiff: number } {
-    // 1. 優先尋找在當前時間窗口內最近的一名有效敵人
+    // 1. 優先尋找在當前時間窗口內最近的一名有效目標
     let closestEnemy: EnemyNote | null = null;
     let minTimeDiff = Infinity;
 
@@ -32,9 +33,8 @@ export class ParryJudge {
       }
     }
 
-    // 2. 若周圍無任何敵人（空按揮空，時差超過 0.20 秒）
-    if (!closestEnemy || minTimeDiff > 0.20) {
-      // 避免超高速物理抖鍵重複計算空按
+    // 2. 若周圍無任何敵人（空按揮空，時差超過 0.22 秒）
+    if (!closestEnemy || minTimeDiff > 0.22) {
       if (inputSongTime - this.lastEmptyActionTime < EMPTY_ACTION_COOLDOWN) {
         return { rating: 'MISS', targetEnemy: null, timeDiff: minTimeDiff };
       }
@@ -47,36 +47,57 @@ export class ParryJudge {
     const timeDiff = inputSongTime - closestEnemy.targetTime;
     const absDiff = Math.abs(timeDiff);
 
-    // 防按鍵物理抖動 (50ms 內同一次微抖不重複判定)
+    // 防按鍵物理抖動 (40ms 內同一次微抖不重複判定，適應 185+ BPM)
     if (inputSongTime - this.lastActionTime < SPAM_COOLDOWN) {
       return { rating: 'MISS', targetEnemy: null, timeDiff: 999 };
     }
     this.lastActionTime = inputSongTime;
 
-    // 連續狂按時的隻狼式判定窗動態微幅收窄（而非直接吞刀）
+    // 連續狂按時的隻狼式判定窗動態微幅收窄
     const isPenalized = inputSongTime < this.penaltyUntilTime;
-    const perfectWin = isPenalized ? WINDOW_PERFECT * 0.65 : WINDOW_PERFECT;
-    const goodWin = isPenalized ? WINDOW_GOOD * 0.8 : WINDOW_GOOD;
+    const perfectWin = isPenalized ? WINDOW_PERFECT * 0.7 : WINDOW_PERFECT;
+    const goodWin = isPenalized ? WINDOW_GOOD * 0.82 : WINDOW_GOOD;
+    const mikiriWin = isPenalized ? WINDOW_MIKIRI * 0.75 : WINDOW_MIKIRI;
+    const jumpWin = isPenalized ? WINDOW_JUMP * 0.8 : WINDOW_JUMP;
 
-    const isPerilous = closestEnemy.type === 'PERILOUS_THRUST' || closestEnemy.type === 'BOSS_JUMP';
-
-    // 4. 面對「危」字攻擊或躍空斬 (PERILOUS_THRUST / BOSS_JUMP)
-    if (isPerilous) {
-      if (action === 'SLASH') {
-        if (absDiff <= WINDOW_MIKIRI) {
+    // 4. 下段掃堂腿橫掃 (SPEAR_SWEEP)：必須向上跳躍看破 (JUMP)
+    if (closestEnemy.type === 'SPEAR_SWEEP') {
+      if (action === 'JUMP') {
+        if (absDiff <= jumpWin) {
           closestEnemy.handled = true;
           this.resetPenalty();
-          return { rating: 'MIKIRI', targetEnemy: closestEnemy, timeDiff };
+          return { rating: 'JUMP_COUNTER', targetEnemy: closestEnemy, timeDiff };
         }
       } else {
-        // 擇錯：面對「危」字卻按格擋 [J] -> 強制被破防受創
+        // 擇錯：面對掃堂腿卻按了格擋或突刺 -> 雙腿被橫掃絆倒受創！
         if (absDiff <= goodWin) {
           closestEnemy.handled = true;
           return { rating: 'WRONG_ACTION', targetEnemy: closestEnemy, timeDiff };
         }
       }
-    } else {
-      // 5. 面對普通攻擊、三連斬、五連斬、延遲重刀
+    }
+    // 5. 直線突刺 / 躍空猛擊 (PERILOUS_THRUST / SPEAR_THRUST / BOSS_JUMP)：必須踏刀看破 (SLASH)
+    else if (
+      closestEnemy.type === 'PERILOUS_THRUST' ||
+      closestEnemy.type === 'SPEAR_THRUST' ||
+      closestEnemy.type === 'BOSS_JUMP'
+    ) {
+      if (action === 'SLASH') {
+        if (absDiff <= mikiriWin) {
+          closestEnemy.handled = true;
+          this.resetPenalty();
+          return { rating: 'MIKIRI', targetEnemy: closestEnemy, timeDiff };
+        }
+      } else {
+        // 擇錯：面對直刺卻按格擋或跳躍 -> 被直接刺穿破防！
+        if (absDiff <= goodWin) {
+          closestEnemy.handled = true;
+          return { rating: 'WRONG_ACTION', targetEnemy: closestEnemy, timeDiff };
+        }
+      }
+    }
+    // 6. 普通攻擊、飛鏢手裏劍、連斬、延遲重刀：必須刀刃招架 (PARRY)
+    else {
       if (action === 'PARRY') {
         if (absDiff <= perfectWin) {
           closestEnemy.handled = true;
@@ -88,7 +109,7 @@ export class ParryJudge {
           return { rating: 'GOOD', targetEnemy: closestEnemy, timeDiff };
         }
       } else {
-        // 面對普通攻擊卻用了看破突刺 [K] -> 揮刀擇錯受創
+        // 擇錯：面對普通斬擊/飛鏢卻胡亂按了突刺或跳躍
         if (absDiff <= goodWin) {
           closestEnemy.handled = true;
           return { rating: 'WRONG_ACTION', targetEnemy: closestEnemy, timeDiff };
@@ -96,8 +117,8 @@ export class ParryJudge {
       }
     }
 
-    // 時間差距偏大（0.15s ~ 0.20s 間按得稍早或稍晚），標記已處理並判 MISS
-    if (absDiff <= 0.20) {
+    // 時間差距偏大（0.15s ~ 0.22s 間按得稍早或稍晚），標記已處理並判 MISS
+    if (absDiff <= 0.22) {
       closestEnemy.handled = true;
     }
     return { rating: 'MISS', targetEnemy: closestEnemy, timeDiff };
@@ -105,8 +126,8 @@ export class ParryJudge {
 
   private handleEmptyAction(now: number): void {
     this.emptyActionCount++;
-    if (this.emptyActionCount >= 3) {
-      this.penaltyUntilTime = now + PENALTY_DURATION; // 觸發 350ms 判定窗略微收窄
+    if (this.emptyActionCount >= 4) {
+      this.penaltyUntilTime = now + PENALTY_DURATION; // 觸發 300ms 判定窗略微收窄
       this.emptyActionCount = 0;
     }
   }

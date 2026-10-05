@@ -1,4 +1,4 @@
-import { SlashBeatSaveSchema, GradeRank } from '../types';
+import { SlashBeatSaveSchema, GradeRank, BladeTrailStyle } from '../types';
 import { STORAGE_KEY } from './Constants';
 
 export class StorageManager {
@@ -10,6 +10,12 @@ export class StorageManager {
     totalRuns: 0,
     calibrationOffsetMs: 0,
     isMuted: false,
+    selectedBladeTrail: 'AZURE',
+    endlessHighScore: 0,
+    endlessMaxCombo: 0,
+    endlessHighestKills: 0,
+    touchSplitRatio: 0.5,
+    touchInvert: false,
   };
 
   public static load(): SlashBeatSaveSchema {
@@ -43,11 +49,8 @@ export class StorageManager {
     }
   }
 
-  public static recordRun(score: number, combo: number, grade: GradeRank): void {
+  public static recordWaveRun(score: number, combo: number, grade: GradeRank): void {
     const current = this.load();
-    const isNewHighScore = score > current.highScore;
-    const isNewHighCombo = combo > current.highestCombo;
-
     const gradeOrder: Record<GradeRank, number> = {
       SSS: 6,
       SS: 5,
@@ -63,6 +66,16 @@ export class StorageManager {
       highScore: Math.max(current.highScore, score),
       highestCombo: Math.max(current.highestCombo, combo),
       bestGrade,
+      totalRuns: current.totalRuns + 1,
+    });
+  }
+
+  public static recordEndlessRun(score: number, combo: number, kills: number): void {
+    const current = this.load();
+    this.save({
+      endlessHighScore: Math.max(current.endlessHighScore, score),
+      endlessMaxCombo: Math.max(current.endlessMaxCombo, combo),
+      endlessHighestKills: Math.max(current.endlessHighestKills, kills),
       totalRuns: current.totalRuns + 1,
     });
   }

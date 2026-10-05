@@ -4,6 +4,7 @@ import { JapaneseSequencer } from './JapaneseSequencer';
 export class SoundEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
+  private compressor: DynamicsCompressorNode | null = null;
   private sfxGain: GainNode | null = null;
   private bgmGain: GainNode | null = null;
 
@@ -26,12 +27,10 @@ export class SoundEngine {
       this.unlock().catch(() => {});
     };
 
-    // 捕捉所有常見移動端與桌面互動手勢
     window.addEventListener('pointerdown', quickUnlock, { passive: true });
     window.addEventListener('touchstart', quickUnlock, { passive: true });
     window.addEventListener('keydown', quickUnlock, { passive: true });
 
-    // 處理行動裝置切換分頁或鎖屏後喚醒
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && this.ctx && this.ctx.state === 'suspended') {
         this.ctx.resume().catch(() => {});
@@ -47,17 +46,30 @@ export class SoundEngine {
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AudioCtx();
 
+      // 1. 動態壓縮器 (消除 180+ BPM 超高速連斬雜音破音)
+      this.compressor = this.ctx.createDynamicsCompressor();
+      this.compressor.threshold.setValueAtTime(-12, this.ctx.currentTime); // -12dB 壓制峰值
+      this.compressor.knee.setValueAtTime(12, this.ctx.currentTime);
+      this.compressor.ratio.setValueAtTime(14, this.ctx.currentTime);     // 強勁壓縮比防溢出
+      this.compressor.attack.setValueAtTime(0.003, this.ctx.currentTime);  // 3ms 極速起音
+      this.compressor.release.setValueAtTime(0.12, this.ctx.currentTime);
+
       this.masterGain = this.ctx.createGain();
       this.masterGain.gain.setValueAtTime(this.isMuted ? 0 : 0.85, this.ctx.currentTime);
+
+      // 連接鏈條：compressor -> masterGain -> destination
+      this.compressor.connect(this.masterGain);
       this.masterGain.connect(this.ctx.destination);
 
+      // 2. 音效子總線 (SFX Bus)
       this.sfxGain = this.ctx.createGain();
-      this.sfxGain.gain.setValueAtTime(1.0, this.ctx.currentTime);
-      this.sfxGain.connect(this.masterGain);
+      this.sfxGain.gain.setValueAtTime(0.95, this.ctx.currentTime);
+      this.sfxGain.connect(this.compressor);
 
+      // 3. 背景樂子總線 (BGM Bus)
       this.bgmGain = this.ctx.createGain();
-      this.bgmGain.gain.setValueAtTime(0.7, this.ctx.currentTime);
-      this.bgmGain.connect(this.masterGain);
+      this.bgmGain.gain.setValueAtTime(0.68, this.ctx.currentTime);
+      this.bgmGain.connect(this.compressor);
 
       this.sfx = new SoundEffects(this.ctx, this.sfxGain);
       this.sequencer = new JapaneseSequencer(this.ctx, this.bgmGain);
