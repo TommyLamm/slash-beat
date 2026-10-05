@@ -6,8 +6,9 @@ import {
   HIT_DISTANCE_OFFSET,
   MAX_HP,
   MAX_POSTURE,
+  FEVER_COMBO_THRESHOLD,
 } from '../core/Constants';
-import { GameState, CombatStats } from '../types';
+import { GameState, CombatStats, FoliageParticle } from '../types';
 import { Samurai } from '../entities/Samurai';
 import { EnemyNinja } from '../entities/EnemyNinja';
 import { VisualEffectManager } from './VisualEffectManager';
@@ -18,34 +19,39 @@ export class CanvasRenderer {
   private width: number = VIRTUAL_WIDTH;
   private height: number = VIRTUAL_HEIGHT;
 
-  // 飄落花瓣與墨點粒子
-  private ambientPetals: Array<{ x: number; y: number; vx: number; vy: number; size: number; alpha: number }> = [];
+  // 浮世繪飄落櫻花花瓣與水墨竹葉
+  private foliage: FoliageParticle[] = [];
 
   constructor(ctx: CanvasRenderingContext2D) {
     this.ctx = ctx;
-    this.initAmbientPetals();
+    this.initFoliage();
   }
 
-  private initAmbientPetals(): void {
-    this.ambientPetals = [];
-    for (let i = 0; i < 35; i++) {
-      this.ambientPetals.push({
+  private initFoliage(): void {
+    this.foliage = [];
+    for (let i = 0; i < 48; i++) {
+      const isSakura = Math.random() > 0.35;
+      this.foliage.push({
         x: Math.random() * this.width,
         y: Math.random() * this.height,
-        vx: 20 + Math.random() * 40,
-        vy: 15 + Math.random() * 30,
-        size: 2.5 + Math.random() * 4.5,
-        alpha: 0.3 + Math.random() * 0.6,
+        vx: 25 + Math.random() * 55,
+        vy: 18 + Math.random() * 40,
+        size: isSakura ? 3 + Math.random() * 4 : 4 + Math.random() * 5,
+        angle: Math.random() * Math.PI * 2,
+        vAngle: (Math.random() - 0.5) * 4.0,
+        alpha: 0.35 + Math.random() * 0.55,
+        type: isSakura ? 'SAKURA' : 'BAMBOO',
       });
     }
   }
 
   public updateAmbient(dt: number): void {
-    for (const p of this.ambientPetals) {
+    for (const p of this.foliage) {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      if (p.x > this.width + 20) p.x = -20;
-      if (p.y > this.height + 20) p.y = -20;
+      p.angle += p.vAngle * dt;
+      if (p.x > this.width + 30) p.x = -30;
+      if (p.y > this.height + 30) p.y = -30;
     }
   }
 
@@ -62,7 +68,8 @@ export class CanvasRenderer {
     currentWave: number,
     countdownVal: number,
     calibrationOffsetMs: number,
-    isMuted: boolean
+    isMuted: boolean,
+    isBossWave: boolean = false
   ): void {
     const ctx = this.ctx;
 
@@ -70,11 +77,11 @@ export class CanvasRenderer {
     ctx.save();
     ctx.clearRect(0, 0, this.width, this.height);
 
-    // 應用相機震動
+    // 應用相機震動與縮放特寫
     camera.applyTransform(ctx);
 
-    // 1. 繪製背景 (血月、山巒、地表)
-    this.renderBackground(ctx, songTime);
+    // 1. 繪製背景 (血月、山巒、水墨搖曳竹林、地表)
+    this.renderBackground(ctx, songTime, stats.combo);
 
     // 2. 戰鬥相關實體與判定線
     if (state === 'COMBAT' || state === 'READY' || state === 'DEATHBLOW_WINDOW' || state === 'IAI_SLASH_BURST') {
@@ -88,7 +95,7 @@ export class CanvasRenderer {
       // 中央武士
       samurai.render(ctx);
 
-      // 特效層 (火花、浮動文字、飛墨)
+      // 特效層 (火花、浮動文字、飛墨、蒼藍烈焰、危字印記)
       vfx.render(ctx);
 
       // 居合一閃反色高光
@@ -97,7 +104,7 @@ export class CanvasRenderer {
       }
 
       // HUD 介面
-      this.renderHUD(ctx, samurai, stats, enemyPosture, currentWave, calibrationOffsetMs, isMuted);
+      this.renderHUD(ctx, samurai, stats, enemyPosture, currentWave, calibrationOffsetMs, isMuted, isBossWave);
     }
 
     // 3. 各狀態特定覆蓋層
@@ -106,11 +113,11 @@ export class CanvasRenderer {
     } else if (state === 'CALIBRATION') {
       this.renderCalibrationScreen(ctx, songTime, calibrationOffsetMs);
     } else if (state === 'READY') {
-      this.renderCountdown(ctx, countdownVal);
+      this.renderCountdown(ctx, countdownVal, isBossWave);
     } else if (state === 'DEATHBLOW_WINDOW') {
-      this.renderDeathblowWindow(ctx, songTime);
+      this.renderDeathblowWindow(ctx, songTime, isBossWave);
     } else if (state === 'WAVE_CLEAR') {
-      this.renderWaveClearOverlay(ctx, currentWave);
+      this.renderWaveClearOverlay(ctx, currentWave, isBossWave);
     } else if (state === 'GAME_OVER') {
       this.renderGameOverScreen(ctx, stats, currentWave);
     }
@@ -118,8 +125,8 @@ export class CanvasRenderer {
     ctx.restore();
   }
 
-  // 1. 背景繪製：深黑水墨天幕、賽博紅月、遠山、和風地表網格
-  private renderBackground(ctx: CanvasRenderingContext2D, songTime: number): void {
+  // 1. 背景繪製：深黑水墨天幕、賽博紅月、遠山、水墨竹林（隨刀風搖曳）、和風地表網格
+  private renderBackground(ctx: CanvasRenderingContext2D, songTime: number, combo: number): void {
     // 夜空背景
     const skyGrad = ctx.createLinearGradient(0, 0, 0, this.height);
     skyGrad.addColorStop(0, '#0a0a14');
@@ -130,7 +137,7 @@ export class CanvasRenderer {
 
     // 賽博血月 (Cyber Blood Moon)
     const moonCx = CENTER_X;
-    const moonCy = 175;
+    const moonCy = 170;
     const moonRadius = 110;
 
     // 月之光暈
@@ -175,6 +182,9 @@ export class CanvasRenderer {
     ctx.closePath();
     ctx.fill();
 
+    // 浮世繪風格：水墨竹林 (Bamboo Forest)，狂暴連擊時隨刀風劇烈搖曳！
+    this.renderBambooForest(ctx, songTime, combo);
+
     // 和風透視地表網格
     ctx.fillStyle = '#06060a';
     ctx.fillRect(0, GROUND_Y, this.width, this.height - GROUND_Y);
@@ -197,7 +207,7 @@ export class CanvasRenderer {
       ctx.stroke();
     }
 
-    // 網格放射縱線 (透視移動效果)
+    // 網格放射縱線
     const gridSpeed = (songTime * 40) % 60;
     for (let gx = -120 + gridSpeed; gx < this.width + 120; gx += 60) {
       ctx.beginPath();
@@ -206,16 +216,89 @@ export class CanvasRenderer {
       ctx.stroke();
     }
 
-    // 漂浮櫻花瓣與水墨點
-    for (const p of this.ambientPetals) {
+    // 飄落的櫻花瓣與水墨竹葉
+    for (const p of this.foliage) {
       ctx.save();
       ctx.globalAlpha = p.alpha;
-      ctx.fillStyle = '#ff4070';
-      ctx.beginPath();
-      ctx.ellipse(p.x, p.y, p.size * 1.4, p.size * 0.8, 0.4, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.angle);
+
+      if (p.type === 'SAKURA') {
+        // 櫻花瓣 (粉紅飄逸)
+        ctx.fillStyle = '#ff5388';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, p.size * 1.5, p.size * 0.85, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // 水墨竹葉 (深竹青)
+        ctx.fillStyle = '#225538';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, p.size * 2.2, p.size * 0.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     }
+  }
+
+  // 繪製水墨竹林 (Bamboo Forest)
+  private renderBambooForest(ctx: CanvasRenderingContext2D, songTime: number, combo: number): void {
+    ctx.save();
+
+    // 計算刀風搖曳幅度：連擊越高，刀氣越烈！
+    const isFever = combo >= FEVER_COMBO_THRESHOLD;
+    const windBase = combo >= 10 ? 12 : 3;
+    const windForce = isFever ? 26 : windBase;
+    const sway = Math.sin(songTime * 8) * windForce;
+
+    // 竹林分佈在畫面左右兩翼 (左側 60~280，右側 680~900)
+    const bambooPoles = [
+      { x: 50,  h: 220, w: 7, color: 'rgba(16, 26, 20, 0.85)' },
+      { x: 120, h: 260, w: 9, color: 'rgba(12, 20, 16, 0.95)' },
+      { x: 190, h: 210, w: 6, color: 'rgba(20, 32, 24, 0.75)' },
+      { x: 270, h: 240, w: 8, color: 'rgba(14, 22, 18, 0.90)' },
+      { x: 690, h: 230, w: 8, color: 'rgba(14, 22, 18, 0.90)' },
+      { x: 770, h: 265, w: 9, color: 'rgba(12, 20, 16, 0.95)' },
+      { x: 840, h: 215, w: 6, color: 'rgba(20, 32, 24, 0.75)' },
+      { x: 910, h: 250, w: 8, color: 'rgba(16, 26, 20, 0.85)' },
+    ];
+
+    for (const b of bambooPoles) {
+      const topX = b.x + sway * (b.h / 250);
+      const topY = GROUND_Y - b.h;
+
+      // 竹竿主幹 (帶弧度隨風彎曲)
+      ctx.strokeStyle = b.color;
+      ctx.lineWidth = b.w;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(b.x, GROUND_Y);
+      ctx.quadraticCurveTo(b.x + sway * 0.4, GROUND_Y - b.h * 0.5, topX, topY);
+      ctx.stroke();
+
+      // 竹節裝飾橫紋
+      ctx.strokeStyle = '#050a08';
+      ctx.lineWidth = 2.5;
+      for (let s = 1; s <= 4; s++) {
+        const segRatio = s / 5;
+        const jx = b.x + (topX - b.x) * segRatio;
+        const jy = GROUND_Y - b.h * segRatio;
+        ctx.beginPath();
+        ctx.moveTo(jx - b.w, jy);
+        ctx.lineTo(jx + b.w, jy);
+        ctx.stroke();
+
+        // 竹節生長細葉
+        if (s >= 2) {
+          ctx.fillStyle = b.color;
+          const leafSway = sway * 0.7;
+          ctx.beginPath();
+          ctx.ellipse(jx + leafSway + 12, jy - 6, 14, 4, 0.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    ctx.restore();
   }
 
   // 判定線光環
@@ -226,15 +309,15 @@ export class CanvasRenderer {
 
     // 左判定環 (格擋)
     ctx.save();
-    ctx.strokeStyle = 'rgba(255, 230, 80, 0.45)';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(255, 230, 80, 0.5)';
+    ctx.lineWidth = 2.5;
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
     ctx.arc(leftHitX, GROUND_Y - 35, 26 * pulse, 0, Math.PI * 2);
     ctx.stroke();
 
     // 右判定環 (看破)
-    ctx.strokeStyle = 'rgba(0, 230, 255, 0.45)';
+    ctx.strokeStyle = 'rgba(0, 230, 255, 0.5)';
     ctx.beginPath();
     ctx.arc(rightHitX, GROUND_Y - 35, 26 * pulse, 0, Math.PI * 2);
     ctx.stroke();
@@ -249,7 +332,7 @@ export class CanvasRenderer {
     ctx.fillRect(0, 0, this.width, this.height);
 
     // 橫切全屏的血色居合雷鳴光刃
-    ctx.lineWidth = 10;
+    ctx.lineWidth = 12;
     ctx.strokeStyle = '#ff003c';
     ctx.beginPath();
     ctx.moveTo(0, GROUND_Y - 35);
@@ -257,7 +340,7 @@ export class CanvasRenderer {
     ctx.stroke();
 
     // 極限黑水墨刀光
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3.5;
     ctx.strokeStyle = '#000000';
     ctx.beginPath();
     ctx.moveTo(0, GROUND_Y - 35);
@@ -267,7 +350,7 @@ export class CanvasRenderer {
     ctx.restore();
   }
 
-  // HUD 介面：血量、架勢條、Boss 架勢、分數、連擊
+  // HUD 介面：血量、架勢條、Boss 架勢、分數、連擊、極意境界 (Fever)
   private renderHUD(
     ctx: CanvasRenderingContext2D,
     samurai: Samurai,
@@ -275,42 +358,49 @@ export class CanvasRenderer {
     enemyPosture: number,
     currentWave: number,
     calibrationOffsetMs: number,
-    isMuted: boolean
+    isMuted: boolean,
+    isBossWave: boolean
   ): void {
     ctx.save();
 
-    // 1. 頂部敵方架勢值 (BOSS/敵人架勢條)
-    const barWidth = 320;
-    const barHeight = 12;
+    // 1. 頂部敵方/Boss 架勢值
+    const barWidth = 340;
+    const barHeight = 13;
     const barX = (this.width - barWidth) / 2;
     const barY = 28;
 
     // 架勢底框
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
     ctx.fillRect(barX - 2, barY - 2, barWidth + 4, barHeight + 4);
-    ctx.strokeStyle = '#444';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = isBossWave ? '#c850ff' : '#444';
+    ctx.lineWidth = 1.5;
     ctx.strokeRect(barX - 2, barY - 2, barWidth + 4, barHeight + 4);
 
-    // 敵方架勢進度 (滿 100 觸發居合一閃)
+    // 敵方架勢進度
     const enemyRatio = Math.min(1.0, enemyPosture / MAX_POSTURE);
     const enemyGrad = ctx.createLinearGradient(barX, 0, barX + barWidth, 0);
-    enemyGrad.addColorStop(0, '#ff9900');
-    enemyGrad.addColorStop(1, '#ff003c');
+    if (isBossWave) {
+      enemyGrad.addColorStop(0, '#c850ff');
+      enemyGrad.addColorStop(1, '#ff0055');
+    } else {
+      enemyGrad.addColorStop(0, '#ff9900');
+      enemyGrad.addColorStop(1, '#ff003c');
+    }
     ctx.fillStyle = enemyGrad;
     ctx.fillRect(barX, barY, barWidth * enemyRatio, barHeight);
 
-    // 敵方架勢標籤
+    // 敵方/Boss 標籤
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 12px "PingFang TC", "Microsoft JhengHei", sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`敵陣架勢 (POSTURE): ${Math.floor(enemyPosture)}%`, CENTER_X, barY - 8);
+    const bossTitle = isBossWave ? '【影之劍聖】架勢 (BOSS POSTURE)' : '敵陣架勢 (POSTURE)';
+    ctx.fillText(`${bossTitle}: ${Math.floor(enemyPosture)}%`, CENTER_X, barY - 8);
 
     // 2. 左上角：波次 WAVE
     ctx.textAlign = 'left';
     ctx.font = '900 20px "PingFang TC", "Microsoft JhengHei", sans-serif';
-    ctx.fillStyle = '#ff2a4a';
-    ctx.fillText(`WAVE: 0${currentWave}`, 36, 36);
+    ctx.fillStyle = isBossWave ? '#c850ff' : '#ff2a4a';
+    ctx.fillText(isBossWave ? 'BOSS: 影之劍聖' : `WAVE: 0${currentWave}`, 36, 36);
 
     // 3. 右上角：得分 SCORE 與 COMBO
     ctx.textAlign = 'right';
@@ -318,11 +408,19 @@ export class CanvasRenderer {
     ctx.fillStyle = '#ffffff';
     ctx.fillText(`SCORE: ${stats.score.toLocaleString()}`, this.width - 36, 34);
 
-    // 連擊數與極意倍率
+    // 連擊數與極意境界 (FEVER RUSH) 演出
     if (stats.combo > 0) {
+      const isFever = stats.combo >= FEVER_COMBO_THRESHOLD;
       ctx.font = '900 24px "PingFang TC", "Microsoft JhengHei", sans-serif';
-      ctx.fillStyle = stats.combo >= 25 ? '#ffd700' : '#00e5ff';
+      ctx.fillStyle = isFever ? '#00f0ff' : (stats.combo >= 10 ? '#ffd700' : '#ffffff');
       ctx.fillText(`${stats.combo} COMBO!`, this.width - 36, 64);
+
+      if (isFever) {
+        // 蒼藍極意境界徽標
+        ctx.font = 'bold 13px "PingFang TC", "Microsoft JhengHei", sans-serif';
+        ctx.fillStyle = '#00f0ff';
+        ctx.fillText('【極意境界 FEVER 2.5x】', this.width - 36, 84);
+      }
     }
 
     // 4. 左下角：武士 HP
@@ -341,7 +439,7 @@ export class CanvasRenderer {
     ctx.font = 'bold 11px sans-serif';
     ctx.fillText(`HP: ${Math.floor(samurai.hp)}/${MAX_HP}`, hpX, hpY - 5);
 
-    // 5. 武士自身架勢條 (滿 100 自身崩防)
+    // 5. 武士自身架勢條
     const pBarW = 160;
     const pBarH = 10;
     const pX = hpX + hpBarW + 24;
@@ -358,7 +456,7 @@ export class CanvasRenderer {
 
     // 6. 底部中央觸控分區與按鍵指引
     ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
     ctx.font = '12px "PingFang TC", "Microsoft JhengHei", sans-serif';
     ctx.fillText('左側: [J] 招架 (PARRY)   |   右側: [K] 看破 (SLASH)', CENTER_X, this.height - 18);
 
@@ -380,17 +478,15 @@ export class CanvasRenderer {
     offsetMs: number
   ): void {
     ctx.save();
-    // 半透明黑色水墨遮罩
-    ctx.fillStyle = 'rgba(6, 6, 12, 0.6)';
+    ctx.fillStyle = 'rgba(6, 6, 12, 0.65)';
     ctx.fillRect(0, 0, this.width, this.height);
 
-    // 主標題：極意一閃
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = '900 68px "PingFang TC", "Microsoft JhengHei", sans-serif';
 
-    // 標題陰影
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    // 標題陰影與重墨
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
     ctx.fillText('極 意 一 閃', CENTER_X + 4, 154);
 
     ctx.fillStyle = '#ff2a4a';
@@ -402,7 +498,7 @@ export class CanvasRenderer {
     // 副標題
     ctx.font = 'bold 22px "PingFang TC", "Microsoft JhengHei", sans-serif';
     ctx.fillStyle = '#ffd700';
-    ctx.fillText('節 奏 打 鐵  //  SLASH BEAT', CENTER_X, 215);
+    ctx.fillText('節 奏 打 鐵  //  SLASH BEAT  v1.1.0', CENTER_X, 215);
 
     // 歷史最高戰績
     ctx.font = '15px "PingFang TC", "Microsoft JhengHei", sans-serif';
@@ -425,7 +521,7 @@ export class CanvasRenderer {
     ctx.fillText('出  陣 (START)', CENTER_X, btnY + btnH / 2);
 
     // 節奏校準按鈕 (CALIBRATE)
-    const calW = 160;
+    const calW = 180;
     const calH = 38;
     const calX = CENTER_X - calW / 2;
     const calY = 390;
@@ -435,69 +531,90 @@ export class CanvasRenderer {
     ctx.roundRect(calX, calY, calW, calH, 4);
     ctx.fill();
 
-    ctx.fillStyle = '#dddddd';
+    ctx.fillStyle = '#00f0ff';
     ctx.font = 'bold 14px "PingFang TC", "Microsoft JhengHei", sans-serif';
-    ctx.fillText(`延遲校準 (${offsetMs}ms)`, CENTER_X, calY + calH / 2);
+    ctx.fillText(`節奏校準 (${offsetMs > 0 ? '+' : ''}${offsetMs}ms)`, CENTER_X, calY + calH / 2);
 
     // 操作指南提示
     ctx.font = '13px "PingFang TC", "Microsoft JhengHei", sans-serif';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-    ctx.fillText('按 [J] 格擋普通攻擊  |  按 [K] 看破「危」字攻擊  |  按 [空白鍵] 出陣', CENTER_X, 470);
-    ctx.fillText(isMuted ? '【點擊右上角或按 ESC 解除靜音】' : '【點擊出陣即可解鎖 Web Audio 震撼金屬音效】', CENTER_X, 498);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.fillText('按 [J] 格擋普通與連斬  |  按 [K] 看破「危」字與躍空斬  |  按 [空白鍵] 出陣', CENTER_X, 470);
+    ctx.fillText(isMuted ? '【點擊右上角或按 ESC 解除靜音】' : '【全新「影之劍聖」BOSS、水墨筆觸、蒼藍極意境界已解鎖】', CENTER_X, 498);
 
     ctx.restore();
   }
 
-  // 校準介面
+  // 校準介面 (提供節奏節拍器校準頁面，微調耳機/螢幕音訊延遲補償 ±150ms)
   private renderCalibrationScreen(
     ctx: CanvasRenderingContext2D,
     songTime: number,
     offsetMs: number
   ): void {
     ctx.save();
-    ctx.fillStyle = 'rgba(5, 5, 10, 0.85)';
+    ctx.fillStyle = 'rgba(5, 5, 10, 0.88)';
     ctx.fillRect(0, 0, this.width, this.height);
 
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffffff';
     ctx.font = '900 32px "PingFang TC", "Microsoft JhengHei", sans-serif';
-    ctx.fillText('音 訊 節 奏 校 準', CENTER_X, 100);
+    ctx.fillText('節 奏 延 遲 校 準', CENTER_X, 90);
 
-    ctx.font = '16px "PingFang TC", "Microsoft JhengHei", sans-serif';
+    ctx.font = '15px "PingFang TC", "Microsoft JhengHei", sans-serif';
     ctx.fillStyle = '#cccccc';
-    ctx.fillText('踏準白圈縮小至正中心的瞬間按下 [J] 或點擊螢幕，以測試硬體延遲', CENTER_X, 145);
+    ctx.fillText('聆聽節拍敲擊聲，觀察收縮光環在重合瞬間敲擊 [J]，並微調補償', CENTER_X, 130);
 
-    // 視覺節奏指示器 (BPM 120 脈動)
-    const beatPhase = (songTime * 2) % 1; // 1秒2拍
-    const ringRadius = 25 + (1 - beatPhase) * 65;
+    // 視覺節拍器指示器 (BPM 120 脈動)
+    const beatPhase = (songTime * 2) % 1; // 1秒2拍 (500ms 一拍)
+    const ringRadius = 26 + (1 - beatPhase) * 70;
 
-    ctx.strokeStyle = '#ff1744';
-    ctx.lineWidth = 3;
+    // 外收縮光環
+    ctx.strokeStyle = beatPhase < 0.1 ? '#00f0ff' : '#ff1744';
+    ctx.lineWidth = 3.5;
     ctx.beginPath();
-    ctx.arc(CENTER_X, 260, ringRadius, 0, Math.PI * 2);
+    ctx.arc(CENTER_X, 245, ringRadius, 0, Math.PI * 2);
     ctx.stroke();
 
     // 判定圓心
     ctx.fillStyle = '#ffd700';
     ctx.beginPath();
-    ctx.arc(CENTER_X, 260, 25, 0, Math.PI * 2);
+    ctx.arc(CENTER_X, 245, 26, 0, Math.PI * 2);
     ctx.fill();
 
-    // 當前校準值
+    // 當前校準數值
     ctx.font = 'bold 24px monospace';
     ctx.fillStyle = '#00e5ff';
-    ctx.fillText(`當前補償偏移 (OFFSET): ${offsetMs > 0 ? '+' : ''}${offsetMs} ms`, CENTER_X, 360);
+    ctx.fillText(`當前音訊延遲補償: ${offsetMs > 0 ? '+' : ''}${offsetMs} ms`, CENTER_X, 345);
 
-    // 調整按鈕指示
-    ctx.font = '15px "PingFang TC", "Microsoft JhengHei", sans-serif';
-    ctx.fillStyle = '#eeeeee';
-    ctx.fillText('按 [J] 減少 -10ms   |   按 [K] 增加 +10ms', CENTER_X, 410);
+    // 微調按鈕指引 (提供 -10ms 與 +10ms 視覺按鈕)
+    const btnMinusW = 120;
+    const btnMinusX = CENTER_X - 140;
+    const btnPlusX = CENTER_X + 20;
+    const adjBtnY = 375;
+    const adjBtnH = 38;
+
+    // -10ms 按鈕
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
+    ctx.beginPath();
+    ctx.roundRect(btnMinusX, adjBtnY, btnMinusW, adjBtnH, 4);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 15px monospace';
+    ctx.fillText('[J] -10 ms', btnMinusX + btnMinusW / 2, adjBtnY + adjBtnH / 2 + 5);
+
+    // +10ms 按鈕
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
+    ctx.beginPath();
+    ctx.roundRect(btnPlusX, adjBtnY, btnMinusW, adjBtnH, 4);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('[K] +10 ms', btnPlusX + btnMinusW / 2, adjBtnY + adjBtnH / 2 + 5);
 
     // 完成校準按鈕
-    const okW = 160;
+    const okW = 180;
     const okH = 42;
     const okX = CENTER_X - okW / 2;
-    const okY = 450;
+    const okY = 445;
+
     ctx.fillStyle = '#2ed573';
     ctx.beginPath();
     ctx.roundRect(okX, okY, okW, okH, 6);
@@ -505,66 +622,63 @@ export class CanvasRenderer {
 
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 16px "PingFang TC", "Microsoft JhengHei", sans-serif';
-    ctx.fillText('保存並返回', CENTER_X, okY + okH / 2 + 5);
+    ctx.fillText('保存校準並返回', CENTER_X, okY + okH / 2 + 5);
 
     ctx.restore();
   }
 
   // 預備倒數 (3-2-1)
-  private renderCountdown(ctx: CanvasRenderingContext2D, val: number): void {
+  private renderCountdown(ctx: CanvasRenderingContext2D, val: number, isBoss: boolean): void {
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = '900 96px "PingFang TC", "Microsoft JhengHei", sans-serif';
 
-    const text = val > 0 ? `${val}` : '一 閃！';
+    const text = val > 0 ? `${val}` : (isBoss ? '斬！' : '一 閃！');
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
     ctx.fillText(text, CENTER_X + 4, GROUND_Y - 76);
 
-    ctx.fillStyle = val > 0 ? '#ffffff' : '#ff003c';
+    ctx.fillStyle = val > 0 ? '#ffffff' : (isBoss ? '#c850ff' : '#ff003c');
     ctx.fillText(text, CENTER_X, GROUND_Y - 80);
     ctx.restore();
   }
 
   // 絕殺契機 (DEATHBLOW_WINDOW)
-  private renderDeathblowWindow(ctx: CanvasRenderingContext2D, songTime: number): void {
+  private renderDeathblowWindow(ctx: CanvasRenderingContext2D, songTime: number, isBoss: boolean): void {
     ctx.save();
-    // 肅殺暗化
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
     ctx.fillRect(0, 0, this.width, this.height);
 
-    // 巨大血紅「死」字高光
     const pulse = 1.0 + Math.sin(songTime * 16) * 0.1;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = `900 ${Math.floor(72 * pulse)}px "PingFang TC", "Microsoft JhengHei", sans-serif`;
 
-    ctx.fillStyle = '#ff003c';
+    ctx.fillStyle = isBoss ? '#c850ff' : '#ff003c';
     ctx.fillText('死', CENTER_X, GROUND_Y - 140);
 
-    // 提示
     ctx.font = 'bold 24px "PingFang TC", "Microsoft JhengHei", sans-serif';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('按 [K] 發動【居合一閃】清屏！', CENTER_X, GROUND_Y - 80);
+    ctx.fillText(isBoss ? '按 [K] 發動【影之奧義・居合處決】！' : '按 [K] 發動【居合一閃】清屏！', CENTER_X, GROUND_Y - 80);
 
     ctx.restore();
   }
 
   // 波次通關覆蓋層
-  private renderWaveClearOverlay(ctx: CanvasRenderingContext2D, wave: number): void {
+  private renderWaveClearOverlay(ctx: CanvasRenderingContext2D, wave: number, isBoss: boolean): void {
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
     ctx.fillRect(0, 0, this.width, this.height);
 
     ctx.font = '900 48px "PingFang TC", "Microsoft JhengHei", sans-serif';
-    ctx.fillStyle = '#ffd700';
-    ctx.fillText(`WAVE 0${wave} 肅 清！`, CENTER_X, GROUND_Y - 90);
+    ctx.fillStyle = isBoss ? '#c850ff' : '#ffd700';
+    ctx.fillText(isBoss ? '影之劍聖 破斬肅清！' : `WAVE 0${wave} 肅 清！`, CENTER_X, GROUND_Y - 90);
 
     ctx.font = 'bold 20px "PingFang TC", "Microsoft JhengHei", sans-serif';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('敵陣強化，節奏加速！', CENTER_X, GROUND_Y - 40);
+    ctx.fillText('修羅道深化，節奏加速！', CENTER_X, GROUND_Y - 40);
 
     ctx.restore();
   }
@@ -572,7 +686,7 @@ export class CanvasRenderer {
   // 結算畫面
   private renderGameOverScreen(ctx: CanvasRenderingContext2D, stats: CombatStats, wave: number): void {
     ctx.save();
-    ctx.fillStyle = 'rgba(6, 6, 12, 0.88)';
+    ctx.fillStyle = 'rgba(6, 6, 12, 0.9)';
     ctx.fillRect(0, 0, this.width, this.height);
 
     ctx.textAlign = 'center';
@@ -580,7 +694,7 @@ export class CanvasRenderer {
     ctx.font = '900 44px "PingFang TC", "Microsoft JhengHei", sans-serif';
     ctx.fillText('戰  局  結  算', CENTER_X, 85);
 
-    // 評級徽章 (SSS / SS / S / A / B / C)
+    // 評級徽章
     ctx.font = '900 72px "PingFang TC", "Microsoft JhengHei", sans-serif';
     ctx.fillStyle = stats.grade === 'SSS' || stats.grade === 'SS' ? '#ffd700' : (stats.grade === 'S' ? '#00e5ff' : '#ffffff');
     ctx.fillText(stats.grade, CENTER_X, 165);

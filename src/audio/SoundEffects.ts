@@ -1,8 +1,8 @@
 export class SoundEffects {
   constructor(private ctx: AudioContext, private out: GainNode) {}
 
-  // 1. 隻狼式極限格擋清脆金屬打鐵巨響 (The Clang)
-  public playClang(): void {
+  // 1. 隻狼式極限格擋清脆金屬打鐵巨響 (The Clang) + 完美招架和弦共振
+  public playClang(isPerfect: boolean = true): void {
     if (this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
 
@@ -15,26 +15,26 @@ export class SoundEffects {
 
       bandpass.type = 'bandpass';
       bandpass.frequency.value = f;
-      bandpass.Q.value = 22; // 高 Q 值帶來尖銳金屬共振
+      bandpass.Q.value = 24; // 極高 Q 值帶來尖銳金屬共振
 
       osc.type = 'sawtooth';
       osc.frequency.setValueAtTime(f, now);
-      osc.frequency.exponentialRampToValueAtTime(f * 0.94, now + 0.22);
+      osc.frequency.exponentialRampToValueAtTime(f * 0.93, now + 0.24);
 
-      gain.gain.setValueAtTime(0.55, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+      gain.gain.setValueAtTime(0.6, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
 
       osc.connect(bandpass);
       bandpass.connect(gain);
       gain.connect(this.out);
 
       osc.start(now);
-      osc.stop(now + 0.22);
+      osc.stop(now + 0.24);
     });
 
     // 瞬態衝擊白噪聲，模擬鐵器劇烈碰撞爆出的火星與氣浪
     try {
-      const bufferSize = Math.floor(this.ctx.sampleRate * 0.045);
+      const bufferSize = Math.floor(this.ctx.sampleRate * 0.05);
       const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
       const data = buffer.getChannelData(0);
       for (let i = 0; i < bufferSize; i++) {
@@ -43,8 +43,8 @@ export class SoundEffects {
       const noise = this.ctx.createBufferSource();
       noise.buffer = buffer;
       const noiseGain = this.ctx.createGain();
-      noiseGain.gain.setValueAtTime(0.65, now);
-      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
+      noiseGain.gain.setValueAtTime(0.7, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
 
       noise.connect(noiseGain);
       noiseGain.connect(this.out);
@@ -52,6 +52,34 @@ export class SoundEffects {
     } catch {
       // 容錯
     }
+
+    // 完美招架時追加古箏/金石共振和弦 (Resonance Chords: D6 1174Hz & A6 1760Hz)
+    if (isPerfect) {
+      this.playResonanceChords(now);
+    }
+  }
+
+  // 完美招架共鳴和弦 (日本調式清越回響)
+  public playResonanceChords(startTime?: number): void {
+    if (this.ctx.state !== 'running') return;
+    const now = startTime ?? this.ctx.currentTime;
+    const chordFreqs = [1174.66, 1760.00]; // 高八度商音與羽音
+
+    chordFreqs.forEach((freq, idx) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + idx * 0.015);
+
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.35, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+
+      osc.connect(gain);
+      gain.connect(this.out);
+      osc.start(now);
+      osc.stop(now + 0.45);
+    });
   }
 
   // 2. 普通格擋鈍響 (The Thud)
@@ -79,38 +107,81 @@ export class SoundEffects {
     if (this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
 
-    // 次重低音衝擊
+    // 次重低音衝擊 (Sub-bass drop)
     const sub = this.ctx.createOscillator();
     const subGain = this.ctx.createGain();
     sub.type = 'sine';
-    sub.frequency.setValueAtTime(160, now);
-    sub.frequency.exponentialRampToValueAtTime(30, now + 0.28);
+    sub.frequency.setValueAtTime(180, now);
+    sub.frequency.exponentialRampToValueAtTime(28, now + 0.35);
 
-    subGain.gain.setValueAtTime(0.85, now);
-    subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+    subGain.gain.setValueAtTime(0.95, now);
+    subGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
 
     sub.connect(subGain);
     subGain.connect(this.out);
     sub.start(now);
-    sub.stop(now + 0.28);
+    sub.stop(now + 0.35);
 
-    // 踩碎刀刃尖鳴
+    // 踩碎刀刃尖鳴 (Blade Snap)
     const snap = this.ctx.createOscillator();
     const snapGain = this.ctx.createGain();
     snap.type = 'square';
-    snap.frequency.setValueAtTime(800, now);
-    snap.frequency.exponentialRampToValueAtTime(120, now + 0.15);
+    snap.frequency.setValueAtTime(840, now);
+    snap.frequency.exponentialRampToValueAtTime(110, now + 0.18);
 
-    snapGain.gain.setValueAtTime(0.3, now);
-    snapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    snapGain.gain.setValueAtTime(0.35, now);
+    snapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
 
     snap.connect(snapGain);
     snapGain.connect(this.out);
     snap.start(now);
-    snap.stop(now + 0.15);
+    snap.stop(now + 0.18);
   }
 
-  // 4. 居合一閃水墨雷鳴音效 (Iai Thunder)
+  // 4. 「危」字印記蓋下：高音金屬錚鳴預警 (Perilous Stamp Alert)
+  public playPerilousStampAlert(): void {
+    if (this.ctx.state !== 'running') return;
+    const now = this.ctx.currentTime;
+
+    // 銳利刺耳的高頻金屬錚鳴 (2800Hz 下滑)
+    const alertOsc = this.ctx.createOscillator();
+    const alertFilter = this.ctx.createBiquadFilter();
+    const alertGain = this.ctx.createGain();
+
+    alertOsc.type = 'sawtooth';
+    alertOsc.frequency.setValueAtTime(2800, now);
+    alertOsc.frequency.exponentialRampToValueAtTime(1400, now + 0.28);
+
+    alertFilter.type = 'bandpass';
+    alertFilter.frequency.setValueAtTime(2600, now);
+    alertFilter.Q.value = 18;
+
+    alertGain.gain.setValueAtTime(0.5, now);
+    alertGain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+
+    alertOsc.connect(alertFilter);
+    alertFilter.connect(alertGain);
+    alertGain.connect(this.out);
+    alertOsc.start(now);
+    alertOsc.stop(now + 0.28);
+
+    // 朱砂印蓋下的沉悶印記音
+    const thudOsc = this.ctx.createOscillator();
+    const thudGain = this.ctx.createGain();
+    thudOsc.type = 'sine';
+    thudOsc.frequency.setValueAtTime(220, now);
+    thudOsc.frequency.exponentialRampToValueAtTime(45, now + 0.15);
+
+    thudGain.gain.setValueAtTime(0.6, now);
+    thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+
+    thudOsc.connect(thudGain);
+    thudGain.connect(this.out);
+    thudOsc.start(now);
+    thudOsc.stop(now + 0.15);
+  }
+
+  // 5. 居合一閃水墨雷鳴音效 (Iai Thunder)
   public playIaiThunder(): void {
     if (this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
@@ -151,7 +222,7 @@ export class SoundEffects {
     hiss.stop(now + 0.35);
   }
 
-  // 5. 玩家受創刺痛肉體音效
+  // 6. 玩家受創刺痛肉體音效
   public playHit(): void {
     if (this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
@@ -171,7 +242,27 @@ export class SoundEffects {
     osc.stop(now + 0.2);
   }
 
-  // 6. 揮空風聲 (Whoosh)
+  // 7. 失誤斷音 / 雜音斷弦 (Miss Buzzer)
+  public playMissBuzz(): void {
+    if (this.ctx.state !== 'running') return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(130, now);
+    osc.frequency.linearRampToValueAtTime(85, now + 0.15);
+
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+
+    osc.connect(gain);
+    gain.connect(this.out);
+    osc.start(now);
+    osc.stop(now + 0.15);
+  }
+
+  // 8. 揮空風聲 (Whoosh)
   public playEmptyWhoosh(): void {
     if (this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
@@ -191,7 +282,7 @@ export class SoundEffects {
     osc.stop(now + 0.1);
   }
 
-  // 7. 倒數預備重太鼓
+  // 9. 倒數預備重太鼓
   public playCountdownTaiko(isFinal: boolean = false): void {
     if (this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
@@ -215,7 +306,7 @@ export class SoundEffects {
     osc.stop(now + dur);
   }
 
-  // 8. 架勢崩潰破防音效 (Posture Break)
+  // 10. 架勢崩潰破防音效 (Posture Break)
   public playPostureBreak(): void {
     if (this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
@@ -237,7 +328,7 @@ export class SoundEffects {
     });
   }
 
-  // 9. 絕殺契機音效 (Deathblow Prompt)
+  // 11. 絕殺契機音效 (Deathblow Prompt)
   public playDeathBlowPrompt(): void {
     if (this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
@@ -255,5 +346,51 @@ export class SoundEffects {
     gain.connect(this.out);
     osc.start(now);
     osc.stop(now + 0.35);
+  }
+
+  // 12. 節拍器滴答校準音 (Metronome Tick)
+  public playMetronomeTick(isStrong: boolean = false): void {
+    if (this.ctx.state !== 'running') return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const gain = this.ctx.createGain();
+
+    const freq = isStrong ? 1400 : 900;
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, now);
+
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(freq, now);
+    filter.Q.value = 15;
+
+    gain.gain.setValueAtTime(isStrong ? 0.6 : 0.35, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.out);
+    osc.start(now);
+    osc.stop(now + 0.05);
+  }
+
+  // 13. 影之劍聖 登場劍氣轟鳴
+  public playBossRoar(): void {
+    if (this.ctx.state !== 'running') return;
+    const now = this.ctx.currentTime;
+
+    const sub = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    sub.type = 'sawtooth';
+    sub.frequency.setValueAtTime(75, now);
+    sub.frequency.exponentialRampToValueAtTime(25, now + 0.7);
+
+    gain.gain.setValueAtTime(0.65, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.7);
+
+    sub.connect(gain);
+    gain.connect(this.out);
+    sub.start(now);
+    sub.stop(now + 0.7);
   }
 }

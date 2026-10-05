@@ -21,6 +21,7 @@ export class Samurai {
   public posture: number = 0;
   public isPostureBroken: boolean = false;
   public postureBrokenTimer: number = 0;
+  public isFever: boolean = false;
 
   public pose: SamuraiPose = 'IDLE';
   private poseTimer: number = 0;
@@ -33,6 +34,7 @@ export class Samurai {
     this.posture = 0;
     this.isPostureBroken = false;
     this.postureBrokenTimer = 0;
+    this.isFever = false;
     this.pose = 'IDLE';
     this.poseTimer = 0;
     this.animTime = 0;
@@ -151,9 +153,9 @@ export class Samurai {
     ctx.closePath();
     ctx.fill();
 
-    // 斗笠邊緣亮邊
-    ctx.strokeStyle = '#8a8a9a';
-    ctx.lineWidth = 1.5;
+    // 斗笠邊緣亮邊 (極意境界下燃燒蒼藍流光)
+    ctx.strokeStyle = this.isFever ? '#00f0ff' : '#8a8a9a';
+    ctx.lineWidth = this.isFever ? 2.5 : 1.5;
     ctx.beginPath();
     ctx.moveTo(-38, -70 + breathe);
     ctx.lineTo(38, -70 + breathe);
@@ -165,7 +167,7 @@ export class Samurai {
 
     if (this.pose === 'PARRY_LEFT') {
       // 左側格擋：太刀橫架於左胸前，刃口向左偏
-      ctx.strokeStyle = '#ffffff';
+      ctx.strokeStyle = this.isFever ? '#00f0ff' : '#ffffff';
       ctx.beginPath();
       ctx.moveTo(-10, -45 + breathe);
       ctx.lineTo(-42, -75);
@@ -179,7 +181,7 @@ export class Samurai {
       ctx.stroke();
     } else if (this.pose === 'PARRY_RIGHT') {
       // 右側格擋：太刀橫架於右側，刃口向右上方招架
-      ctx.strokeStyle = '#ffffff';
+      ctx.strokeStyle = this.isFever ? '#00f0ff' : '#ffffff';
       ctx.beginPath();
       ctx.moveTo(10, -45 + breathe);
       ctx.lineTo(42, -75);
@@ -191,17 +193,21 @@ export class Samurai {
       ctx.lineTo(12, -42 + breathe);
       ctx.stroke();
     } else if (this.pose === 'MIKIRI') {
-      // 看破踩刀：右腳前踏，雙手持刀猛力向下突刺定格
+      // 凌空踩刀看破：特工躍空下踏，單足踩住刀尖，雙手按刀怒斬
+      ctx.translate(0, -18); // 凌空懸躍 18px
+
       ctx.strokeStyle = '#00f0ff';
+      ctx.lineWidth = 4;
       ctx.beginPath();
       ctx.moveTo(-5, -45 + breathe);
-      ctx.lineTo(35, -15);
+      ctx.lineTo(35, 2);
       ctx.stroke();
 
       // 踏刀白光震波
-      ctx.strokeStyle = 'rgba(0, 240, 255, 0.8)';
+      ctx.strokeStyle = 'rgba(0, 240, 255, 0.9)';
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.arc(35, -5, 18, 0, Math.PI * 2);
+      ctx.arc(35, 12, 22, 0, Math.PI * 2);
       ctx.stroke();
     } else if (this.pose === 'IAI_CHARGE') {
       // 居合拔刀術蓄力姿態：伏低身軀，左手按鞘，右手扣刀柄

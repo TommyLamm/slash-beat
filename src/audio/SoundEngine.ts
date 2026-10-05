@@ -12,15 +12,39 @@ export class SoundEngine {
 
   private isUnlocked: boolean = false;
   private isMuted: boolean = false;
+  private listenersAttached: boolean = false;
 
   constructor() {
-    // 延遲至使用者手勢時或建構時安全初始化
+    this.attachAutoUnlockListeners();
+  }
+
+  private attachAutoUnlockListeners(): void {
+    if (this.listenersAttached || typeof window === 'undefined') return;
+    this.listenersAttached = true;
+
+    const quickUnlock = (): void => {
+      this.unlock().catch(() => {});
+    };
+
+    // 捕捉所有常見移動端與桌面互動手勢
+    window.addEventListener('pointerdown', quickUnlock, { passive: true });
+    window.addEventListener('touchstart', quickUnlock, { passive: true });
+    window.addEventListener('keydown', quickUnlock, { passive: true });
+
+    // 處理行動裝置切換分頁或鎖屏後喚醒
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && this.ctx && this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(() => {});
+      }
+    });
   }
 
   public init(): void {
     if (this.ctx) return;
     try {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AudioCtx();
 
       this.masterGain = this.ctx.createGain();
@@ -46,7 +70,7 @@ export class SoundEngine {
     this.init();
     if (!this.ctx) return false;
 
-    if (this.ctx.state === 'suspended') {
+    if (this.ctx.state === 'suspended' || (this.ctx.state as string) === 'interrupted') {
       try {
         await this.ctx.resume();
       } catch (e) {
@@ -57,7 +81,16 @@ export class SoundEngine {
     return this.isUnlocked;
   }
 
+  public ensureRunning(): void {
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
+  }
+
   public getContext(): AudioContext | null {
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
     return this.ctx;
   }
 

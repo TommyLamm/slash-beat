@@ -10,7 +10,13 @@ export type GameState =
   | 'GAME_OVER';
 
 export type ActionType = 'PARRY' | 'SLASH';
-export type AttackType = 'NORMAL' | 'PERILOUS_THRUST' | 'FLURRY_TRIPLE';
+export type AttackType =
+  | 'NORMAL'
+  | 'PERILOUS_THRUST'
+  | 'FLURRY_TRIPLE'
+  | 'BOSS_QUINTUPLE'
+  | 'BOSS_DELAYED'
+  | 'BOSS_JUMP';
 export type AttackSide = 'LEFT' | 'RIGHT';
 
 export type ParryRating = 'PERFECT' | 'GOOD' | 'MIKIRI' | 'MISS' | 'WRONG_ACTION';
@@ -40,6 +46,9 @@ export interface EnemyNote {
   isDead: boolean;
   handled: boolean;
   slashHit?: boolean;
+  isBoss?: boolean;
+  flurryIndex?: number;
+  flurryTotal?: number;
 }
 
 export interface SparkParticle {
@@ -72,6 +81,39 @@ export interface InkSplatter {
   alpha: number;
   angle: number;
   length: number;
+  life: number;
+  maxLife: number;
+}
+
+export interface FoliageParticle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  size: number;
+  angle: number;
+  vAngle: number;
+  alpha: number;
+  type: 'SAKURA' | 'BAMBOO';
+}
+
+export interface AuraParticle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  size: number;
+  color: string;
+  alpha: number;
+  life: number;
+  maxLife: number;
+}
+
+export interface PerilousStamp {
+  x: number;
+  y: number;
+  scale: number;
+  alpha: number;
   life: number;
   maxLife: number;
 }
